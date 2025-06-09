@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html>
+  <body>
+    <h2>💬 WebSocket Chat</h2>
+    <input id="msg" placeholder="Type message..." oninput="sendTyping()" />
+    <button onclick="sendMessage()">Send</button><br />
+    <h3 id="activeUsers"></h3>
+    <p id="isTyping"></p>
+    <div id="chat"></div>
+
+    <script>
+      let userName = prompt("Enter your name:");
+      const socket = new WebSocket("ws://localhost:3000");
+
+      socket.onopen = () => {
+        socket.send(userName); // First message is the username
+      };
+
+      socket.onmessage = (event) => {
+        const data = JSON.parse(event.data);
+
+        const { message, activeUsers, userName, timestamp, type } = data;
+
+        if (type === "welcome") {
+          document.getElementById("chat").innerHTML += `<p> ✅ You joined as ${userName}</p>`;
+          return;
+        }
+
+        if (type === "userJoined") {
+          document.getElementById("chat").innerHTML += `<p> ✅ ${userName} joined the chat</p>`;
+          document.getElementById("activeUsers").innerHTML = `Active Users: ${activeUsers}`;
+          return;
+        }
+
+        if (type === "userLeft") {
+          document.getElementById("chat").innerHTML += `<p> ❌ ${userName} left the chat</p>`;
+          document.getElementById("activeUsers").innerHTML = `Active Users: ${activeUsers}`;
+          return;
+        }
+
+        if (type === "typing") {
+            document.getElementById("isTyping").innerText = `✍️ ${userName} is typing...`;
+
+           setTimeout(() => {
+                typingDiv.innerText = "";
+            }, 500) // clear after 0.5 seconds
+            return;
+        }
+
+        document.getElementById("chat").innerHTML += `
+        <p>${userName} : ${message}</p>
+        <p><small>${new Date(timestamp).toLocaleTimeString()}</small></p>
+        `;
+        document.getElementById("activeUsers").innerHTML = `Active Users: ${activeUsers}`;
+      };
+
+      function sendMessage() {
+        const input = document.getElementById("msg");
+        const text = input.value.trim();
+        if (text) {
+          socket.send(text);
+          input.value = "";
+        }
+      }
+
+      function sendTyping() {
+        socket.send(JSON.stringify({ type: "typing", userName }));
+      }
+
+
+    </script>
+  </body>
+</html>
