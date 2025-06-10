@@ -6,7 +6,8 @@
     "test": "echo \"Error: no test specified\" && exit 1",
     "start": "node server.js",
     "dev": "nodemon server.js",
-    "second":"nodemon websockets.js"
+    "second":"nodemon websockets.js",
+    "rachit":"nodemon rachit.js"
   },
   "keywords": [],
   "author": "",

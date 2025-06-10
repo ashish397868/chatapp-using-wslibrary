@@ -1,77 +1,360 @@
 <!DOCTYPE html>
 <html>
+  <head>
+    <title>💬 WebSocket Chat</title>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        background: #f4f4f4;
+        color: #333;
+      }
+      #main {
+        display: flex;
+        gap: 10px;
+        margin: 20px;
+      }
+      .panel {
+        background: #fff;
+        border-radius: 5px;
+        padding: 10px;
+        box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+      }
+      #left {
+        width: 25%;
+      }
+      #right {
+        width: 75%;
+        display: flex;
+        flex-direction: column;
+      }
+      #chat {
+        flex: 1;
+        overflow-y: auto;
+        margin-top: 10px;
+        height: 400px;
+        border: 1px solid #ddd;
+        padding: 10px;
+      }
+      input[type="text"],
+      button {
+        padding: 8px;
+        margin: 5px 0;
+        width: calc(100% - 16px);
+      }
+      .selected {
+        background: #e3f2fd;
+        border-left: 3px solid #2196f3;
+      }
+      .message {
+        margin-bottom: 10px;
+      }
+      .timestamp {
+        color: #666;
+        font-size: 0.8em;
+      }
+
+      /* User list styling */
+      #users li,
+      #rooms li {
+        position: relative;
+        padding: 10px;
+        margin: 5px 0;
+        border-radius: 8px;
+        cursor: pointer;
+        transition: background-color 0.2s;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+      }
+
+      #users li:hover,
+      #rooms li:hover {
+        background: #f0f0f0;
+      }
+
+      .user-info {
+        display: flex;
+        align-items: center;
+        flex: 1;
+      }
+
+      .online-status {
+        width: 8px;
+        height: 8px;
+        background: #4caf50;
+        border-radius: 50%;
+        margin-right: 8px;
+        display: inline-block;
+      }
+
+      .message-count {
+        background: #f44336;
+        color: white;
+        border-radius: 50%;
+        padding: 2px 6px;
+        font-size: 12px;
+        min-width: 18px;
+        height: 18px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        margin-left: 8px;
+      }
+
+      .message-count.zero {
+        display: none;
+      }
+
+      #users,
+      #rooms {
+        list-style: none;
+        padding: 0;
+        margin: 0;
+      }
+
+      .user-name {
+        font-weight: 500;
+      }
+
+      /* Chat room badge */
+      .room-badge {
+        background: #2196f3;
+        color: white;
+        border-radius: 50%;
+        padding: 2px 6px;
+        font-size: 12px;
+        min-width: 18px;
+        height: 18px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        margin-left: 8px;
+      }
+    </style>
+  </head>
   <body>
     <h2>💬 WebSocket Chat</h2>
-    <input id="msg" placeholder="Type message..." oninput="sendTyping()" />
-    <button onclick="sendMessage()">Send</button><br />
-    <h3 id="activeUsers"></h3>
-    <p id="isTyping"></p>
-    <div id="chat"></div>
+    <div id="main">
+      <div id="left" class="panel">
+        <h3>Chat Rooms</h3>
+        <ul id="rooms">
+          <li id="room-public" class="selected" onclick="selectRoom('public')">
+            <div class="user-info">🗣️ <span class="user-name">Public Chat</span></div>
+            <span id="public-count" class="room-badge">0</span>
+          </li>
+        </ul>
+        <h3>Active Users</h3>
+        <ul id="users"></ul>
+      </div>
+      <div id="right" class="panel">
+        <p id="isTyping"></p>
+        <input id="msg" type="text" placeholder="Type your message..." oninput="sendTyping()" onkeypress="handleKeyPress(event)" />
+        <button onclick="sendMessage()">Send</button>
+        <div id="chat"></div>
+      </div>
+    </div>
 
     <script>
-      let userName = prompt("Enter your name:");
       const socket = new WebSocket("ws://localhost:3000");
+      let myName = prompt("Enter your name:");
+      let currentRoom = "public";
+      const privateChats = {}; // history per user
+      const publicChatHistory = []; // Store public chat history
+      const unreadCounts = {}; // Track unread messages per user
+      let publicUnreadCount = 0;
 
-      socket.onopen = () => {
-        socket.send(userName); // First message is the username
+      socket.onopen = () => socket.send(myName);
+
+      socket.onmessage = ({ data }) => {
+        const d = JSON.parse(data);
+        switch (d.type) {
+          case "welcome":
+          case "userJoined":
+          case "userLeft":
+            refreshUserList(d.activeUsersList || []);
+            updatePublicRoomCount(d.activeUsers);
+            break;
+          case "typing":
+            document.getElementById("isTyping").innerText = `✍️ ${d.userName} is typing...`;
+            setTimeout(() => {
+              document.getElementById("isTyping").innerText = "";
+            }, 800);
+            break;
+          case "chatMessage":
+            // Store in public chat history
+            publicChatHistory.push(d);
+            // Increment unread count if not in public room
+            if (currentRoom !== "public") {
+              publicUnreadCount++;
+              updatePublicUnreadBadge();
+            }
+            // Display if we're in public room
+            if (currentRoom === "public") {
+              addToChat(d);
+            }
+            break;
+          case "privateMessage":
+            // save history
+            privateChats[d.from] = privateChats[d.from] || [];
+            privateChats[d.from].push(d);
+
+            // Increment unread count if not in this private chat
+            if (currentRoom !== d.from) {
+              unreadCounts[d.from] = (unreadCounts[d.from] || 0) + 1;
+              updateUserUnreadBadge(d.from);
+            }
+
+            if (currentRoom === d.from) addToChat(d);
+            break;
+        }
       };
 
-      socket.onmessage = (event) => {
-        const data = JSON.parse(event.data);
+      function refreshUserList(list) {
+        const ul = document.getElementById("users");
+        ul.innerHTML = "";
+        list
+          .filter((u) => u !== myName)
+          .forEach((u) => {
+            const li = document.createElement("li");
+            li.onclick = () => selectRoom(u);
+            if (currentRoom === u) li.classList.add("selected");
 
-        const { message, activeUsers, userName, timestamp, type } = data;
+            // Create user info structure
+            li.innerHTML = `
+          <div class="user-info">
+            <span class="online-status"></span>
+            <span class="user-name">${u}</span>
+          </div>
+          <span class="message-count ${(unreadCounts[u] || 0) === 0 ? "zero" : ""}">${unreadCounts[u] || 0}</span>
+        `;
 
-        if (type === "welcome") {
-          document.getElementById("chat").innerHTML += `<p> ✅ You joined as ${userName}</p>`;
-          return;
+            ul.appendChild(li);
+          });
+      }
+
+      function selectRoom(room) {
+        currentRoom = room;
+        document.querySelectorAll("#rooms li, #users li").forEach((ele) => ele.classList.remove("selected"));
+
+        // Clear chat display
+        document.getElementById("chat").innerHTML = "";
+
+        if (room === "public") {
+          document.getElementById("room-public").classList.add("selected");
+          // Reset public unread count
+          publicUnreadCount = 0;
+          updatePublicUnreadBadge();
+          // Show all public chat history
+          publicChatHistory.forEach(addToChat);
+        } else {
+          [...document.getElementById("users").children].find((c) => c.querySelector(".user-name").textContent === room)?.classList.add("selected");
+          // Reset unread count for this user
+          unreadCounts[room] = 0;
+          updateUserUnreadBadge(room);
+          // Show private chat history
+          (privateChats[room] || []).forEach(addToChat);
+        }
+      }
+
+      function addToChat(d) {
+        const div = document.getElementById("chat");
+        let messageHtml = "";
+
+        if (d.type === "chatMessage") {
+          messageHtml = `<div class="message">
+                        <strong>${d.userName}:</strong> ${d.message}
+                        <div class="timestamp">${new Date(d.timestamp).toLocaleTimeString()}</div>
+                      </div>`;
+        } else if (d.type === "privateMessage") {
+          const sender = d.from === myName ? "You" : d.from;
+          messageHtml = `<div class="message">
+                        <strong>${sender}:</strong> ${d.message}
+                        <div class="timestamp">${new Date(d.timestamp).toLocaleTimeString()}</div>
+                      </div>`;
         }
 
-        if (type === "userJoined") {
-          document.getElementById("chat").innerHTML += `<p> ✅ ${userName} joined the chat</p>`;
-          document.getElementById("activeUsers").innerHTML = `Active Users: ${activeUsers}`;
-          return;
+        if (messageHtml) {
+          div.innerHTML += messageHtml;
+          div.scrollTop = div.scrollHeight;
         }
-
-        if (type === "userLeft") {
-          document.getElementById("chat").innerHTML += `<p> ❌ ${userName} left the chat</p>`;
-          document.getElementById("activeUsers").innerHTML = `Active Users: ${activeUsers}`;
-          return;
-        }
-
-        if (type === "typing") {
-            document.getElementById("isTyping").innerText = `✍️ ${userName} is typing...`;
-
-           setTimeout(() => {
-                typingDiv.innerText = "";
-            }, 500) // clear after 0.5 seconds
-            return;
-        }
-
-        if(type==="chatMessage"){
-          document.getElementById("isTyping").innerText = "";
-          document.getElementById("chat").innerHTML += `
-          <p>${userName} : ${message}</p>
-          <p><small>${new Date(timestamp).toLocaleTimeString()}</small></p>
-          `;
-          document.getElementById("activeUsers").innerHTML = `Active Users: ${activeUsers}`;
-        }
-
-
-      };
+      }
 
       function sendMessage() {
-        const input = document.getElementById("msg");
-        const text = input.value.trim();
-        if (text) {
-          socket.send(text);
-          input.value = "";
+        const msg = document.getElementById("msg").value.trim();
+        if (!msg) return;
+        document.getElementById("msg").value = "";
+
+        if (currentRoom === "public") {
+          // Create a local message object for immediate display
+          const localMessage = {
+            type: "chatMessage",
+            userName: myName,
+            message: msg,
+            timestamp: new Date().toISOString(),
+          };
+
+          // Add to public chat history and display immediately
+          publicChatHistory.push(localMessage);
+          addToChat(localMessage);
+
+          // Send to server
+          socket.send(msg);
+        } else {
+          // For private messages
+          socket.send(JSON.stringify({ type: "privateMessage", to: currentRoom, message: msg }));
+          const d = { type: "privateMessage", from: myName, to: currentRoom, message: msg, timestamp: new Date().toISOString() };
+          privateChats[currentRoom] = privateChats[currentRoom] || [];
+          privateChats[currentRoom].push(d);
+          addToChat(d);
         }
       }
 
       function sendTyping() {
-        socket.send(JSON.stringify({ type: "typing", userName }));
+        socket.send(JSON.stringify({ type: "typing" }));
       }
 
+      function handleKeyPress(event) {
+        if (event.key === "Enter") {
+          sendMessage();
+        }
+      }
+
+      function updatePublicRoomCount(activeUsers) {
+        document.getElementById("public-count").textContent = activeUsers || 0;
+      }
+
+      function updatePublicUnreadBadge() {
+        const badge = document.querySelector("#room-public .room-badge");
+        if (currentRoom === "public") {
+          badge.textContent = publicChatHistory.length;
+          badge.style.background = "#2196f3";
+        } else {
+          if (publicUnreadCount > 0) {
+            badge.textContent = publicUnreadCount;
+            badge.style.background = "#f44336";
+          } else {
+            badge.textContent = publicChatHistory.length;
+            badge.style.background = "#2196f3";
+          }
+        }
+      }
+
+      function updateUserUnreadBadge(username) {
+        const userElements = document.querySelectorAll("#users li");
+        userElements.forEach((li) => {
+          const nameElement = li.querySelector(".user-name");
+          const badgeElement = li.querySelector(".message-count");
+          if (nameElement && nameElement.textContent === username) {
+            const count = unreadCounts[username] || 0;
+            badgeElement.textContent = count;
+            if (count === 0) {
+              badgeElement.classList.add("zero");
+            } else {
+              badgeElement.classList.remove("zero");
+            }
+          }
+        });
+      }
     </script>
   </body>
 </html>
