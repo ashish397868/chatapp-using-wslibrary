@@ -47,11 +47,16 @@
             return;
         }
 
-        document.getElementById("chat").innerHTML += `
-        <p>${userName} : ${message}</p>
-        <p><small>${new Date(timestamp).toLocaleTimeString()}</small></p>
-        `;
-        document.getElementById("activeUsers").innerHTML = `Active Users: ${activeUsers}`;
+        if(type==="chatMessage"){
+          document.getElementById("isTyping").innerText = "";
+          document.getElementById("chat").innerHTML += `
+          <p>${userName} : ${message}</p>
+          <p><small>${new Date(timestamp).toLocaleTimeString()}</small></p>
+          `;
+          document.getElementById("activeUsers").innerHTML = `Active Users: ${activeUsers}`;
+        }
+
+
       };
 
       function sendMessage() {
@@ -66,7 +71,6 @@
       function sendTyping() {
         socket.send(JSON.stringify({ type: "typing", userName }));
       }
-
 
     </script>
   </body>

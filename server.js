@@ -14,6 +14,16 @@ app.get("/", (req, res) => {
 
 const clients = new Map(); // Map<ws, username>
 
+// Utility to broadcast message to clients
+function broadcast(data, exclude) {
+  const message = JSON.stringify(data);
+  wss.clients.forEach((client) => {
+    if (client.readyState === WebSocket.OPEN && client !== exclude) {
+      client.send(message);
+    }
+  });
+}
+
 wss.on("connection", (ws) => {
   let userName = null;
 
@@ -28,18 +38,7 @@ wss.on("connection", (ws) => {
       ws.send(JSON.stringify({ type: "welcome", userName }));
 
       // Notify others
-      const joinedMsg = {
-        type: "userJoined",
-        userName,
-        activeUsers: clients.size,
-      };
-
-      wss.clients.forEach((client) => {
-        if (client !== ws && client.readyState === WebSocket.OPEN) {
-          client.send(JSON.stringify(joinedMsg));
-        }
-      });
-
+      broadcast({ type: "userJoined", userName, activeUsers: clients.size }, ws);
       return;
     }
 
@@ -48,17 +47,7 @@ wss.on("connection", (ws) => {
       const parsed = JSON.parse(msg);
 
       if (parsed.type === "typing") {
-        const typingMsg = {
-          type: "typing",
-          userName: clients.get(ws),
-        };
-
-        wss.clients.forEach((client) => {
-          if (client !== ws && client.readyState === WebSocket.OPEN) {
-            client.send(JSON.stringify(typingMsg));
-          }
-        });
-
+        broadcast({ type: "typing", userName: clients.get(ws) }, ws);
         return; // Don't continue
       }
     } catch (e) {
@@ -67,34 +56,21 @@ wss.on("connection", (ws) => {
 
     // STEP 3: Chat message
     const chatData = {
+      type: "chatMessage",
       userName: clients.get(ws),
       message: msg,
       timestamp: new Date().toISOString(),
       activeUsers: clients.size,
     };
 
-    wss.clients.forEach((client) => {
-      if (client.readyState === WebSocket.OPEN) {
-        client.send(JSON.stringify(chatData));
-      }
-    });
+    broadcast(chatData);
   });
 
   ws.on("close", () => {
     const leftUser = clients.get(ws);
     clients.delete(ws);
 
-    const leftMsg = {
-      type: "userLeft",
-      userName: leftUser,
-      activeUsers: clients.size,
-    };
-
-    wss.clients.forEach((client) => {
-      if (client.readyState === WebSocket.OPEN) {
-        client.send(JSON.stringify(leftMsg));
-      }
-    });
+    broadcast({type: "userLeft",userName: leftUser,activeUsers: clients.size,},ws);
   });
 });
 
